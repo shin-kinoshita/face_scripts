@@ -3,19 +3,19 @@ import input_data
 import tensorflow as tf
 import shutil
 import os.path
-import Image
 import numpy as np
+from PIL import Image
 IMAGE_SIZE = 56
 IMAGE_PIXELS = IMAGE_SIZE*IMAGE_SIZE*3
 flags = tf.app.flags
 FLAGS = flags.FLAGS
-flags.DEFINE_string('train', './data_modified/train.txt', 'File name of train data')
-flags.DEFINE_string('test', './data_modified/test.txt', 'File name of train data')
+flags.DEFINE_string('train', './data/train.txt', 'File name of train data')
+flags.DEFINE_string('test', './data/test.txt', 'File name of train data')
 flags.DEFINE_integer('batch_size', 100, 'Batch size'
                      'Must divide evenly into the dataset sizes.')
 
 export_dir = './tmp/face-export'
-data_dir = './data_modified'
+data_dir = './data'
 
 def get_file_info(doc_path):
     f = open(doc_path, 'r')
@@ -40,8 +40,8 @@ def import_image_list(file_list):
     image_list = []
     for path in file_list:
         image = Image.open(path)
-        print path
-        image.thumbnail(size, Image.ANTIALIAS)
+        image = image.resize(size)
+        #image.thumbnail(size, Image.ANTIALIAS)
         image = np.asarray(image)
         image_list.append(image.flatten().astype(np.float32) / 255.0)
     return np.asarray(image_list)
@@ -109,18 +109,18 @@ with g.as_default():
     x = tf.placeholder("float", shape=[None, IMAGE_PIXELS])
     y_ = tf.placeholder("float", shape=[None, NUM_CLASSES])
 
-    W_conv1 = weight_variable([5, 5, 3, 32])
+    W_conv1 = weight_variable([3, 3, 3, 32])
     b_conv1 = bias_variable([32])
     x_image = tf.reshape(x, [-1, IMAGE_SIZE, IMAGE_SIZE, 3])
     h_conv1 = tf.nn.relu(conv2d(x_image, W_conv1) + b_conv1)
     h_pool1 = max_pool_2x2(h_conv1)
 
-    W_conv2 = weight_variable([5, 5, 32, 64])
+    W_conv2 = weight_variable([3, 3, 32, 64])
     b_conv2 = bias_variable([64])
     h_conv2 = tf.nn.relu(conv2d(h_pool1, W_conv2) + b_conv2)
     h_pool2 = max_pool_2x2(h_conv2)
 
-    W_conv3 = weight_variable([5, 5, 64, 128])
+    W_conv3 = weight_variable([3, 3, 64, 128])
     b_conv3 = bias_variable([128])
     h_conv3 = tf.nn.relu(conv2d(h_pool2, W_conv3) + b_conv3)
     h_pool3 = max_pool_2x2(h_conv3)
@@ -148,11 +148,12 @@ with g.as_default():
     sess.run(tf.initialize_all_variables())
 
     train_file_list, train_sign_list = get_file_info(FLAGS.train)
-    file_gen = list_generator(train_file_list, FLAGS.batch_size)
-    sign_gen = list_generator(train_sign_list, FLAGS.batch_size)
     for step in range(50):
         batch = 0
+        train_acc = 0
         loop_count = len(train_file_list) /FLAGS.batch_size
+        file_gen = list_generator(train_file_list, FLAGS.batch_size)
+        sign_gen = list_generator(train_sign_list, FLAGS.batch_size)
         image_list = np.zeros([1, IMAGE_PIXELS])
         label_list = np.zeros([1, NUM_CLASSES])
         for i in range(loop_count):
@@ -162,14 +163,12 @@ with g.as_default():
             image_list  = import_image_list(file_list)
             label_list  = trans_sign_to_label(sign_list)
             train_step.run({x: image_list, y_: label_list, keep_prob: 0.5}, sess)
-        train_acc = accuracy.eval({x: image_list, y_: label_list, keep_prob: 1.0}, sess)
-        print "step {0}, training accuracy {1}".format(step, train_acc)
+            train_acc += accuracy.eval({x: image_list, y_: label_list, keep_prob: 1.0}, sess)
+        print "step {0}, training accuracy {1}".format(step, train_acc / loop_count)
 
     test_file_list, test_sign_list = get_file_info(FLAGS.test)
-    print image_list.shape
     image_list = import_image_list(test_file_list)
     label_list = trans_sign_to_label(test_sign_list)
-    print image_list.shape
     test_acc = accuracy.eval({x: image_list, y_: label_list, keep_prob: 1.0}, sess)
     print "test accuracy {0}".format(test_acc)
 save_path = saver.save(sess, "face_model.ckpt")
@@ -206,13 +205,13 @@ with g_2.as_default():
 
     W_conv3_2 = tf.constant(_W_conv3, name="constant_W_conv2")
     b_conv3_2 = tf.constant(_b_conv3, name="constant_b_conv2")
-    h_conv3_2 = tf.nn.relu(conv2d(h_pool3_2, W_conv3_2) + b_conv3_2)
+    h_conv3_2 = tf.nn.relu(conv2d(h_pool2_2, W_conv3_2) + b_conv3_2)
     h_pool3_2 = max_pool_2x2(h_conv3_2)
 
     W_fc1_2 = tf.constant(_W_fc1, name="constant_W_fc1")
     b_fc1_2 = tf.constant(_b_fc1, name="constant_b_fc1")
-    h_pool2_flat_2 = tf.reshape(h_pool2_2, [-1, IMAGE_SIZE * IMAGE_SIZE * 128 / 64])
-    h_fc1_2 = tf.nn.relu(tf.matmul(h_pool3_flat_2, W_fc1_2) + b_fc1_2)
+    h_pool2_flat_2 = tf.reshape(h_pool3_2, [-1, IMAGE_SIZE * IMAGE_SIZE * 128 / 64])
+    h_fc1_2 = tf.nn.relu(tf.matmul(h_pool2_flat_2, W_fc1_2) + b_fc1_2)
 
     W_fc2_2 = tf.constant(_W_fc2, name="constant_W_fc2")
     b_fc2_2 = tf.constant(_b_fc2, name="constant_b_fc2")
@@ -233,7 +232,10 @@ with g_2.as_default():
     correct_prediction_2 = tf.equal(tf.argmax(y_conv_2, 1), tf.argmax(y__2, 1))
     accuracy_2 = tf.reduce_mean(tf.cast(correct_prediction_2, "float"))
 
+    test_file_list, test_sign_list = get_file_info(FLAGS.test)
+    image_list = import_image_list(test_file_list)
+    label_list = trans_sign_to_label(test_sign_list)
     print "check accuracy %g" % accuracy_2.eval(
-        {x_2:test_image, y__2: test_label}, sess_2)
+        {x_2:image_list, y__2:label_list}, sess_2)
 
 

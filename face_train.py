@@ -7,6 +7,7 @@ import numpy as np
 import sys
 from PIL import Image
 from sklearn import svm
+from random import shuffle
 
 IMAGE_SIZE = 56
 IMAGE_PIXELS = IMAGE_SIZE*IMAGE_SIZE*3
@@ -21,6 +22,16 @@ flags.DEFINE_string('saverPath', './tmp/face_model.ckpt', 'File name of .ckpt da
 export_dir = './tmp/face-export'
 data_dir = './data'
 
+
+def shuffle_data(features, labels):
+    new_features, new_labels = [], []
+    index_shuf = range(len(features))
+    shuffle(index_shuf)
+    for i in index_shuf:
+        new_features.append(features[i])
+        new_labels.append(labels[i])
+    return new_features, new_labels
+
 def get_file_info(doc_path):
     f = open(doc_path, 'r')
     file_list = []
@@ -32,7 +43,7 @@ def get_file_info(doc_path):
         label = l[1]
         file_list.append(file_name)
         label_list.append(label)
-    return file_list, label_list
+    return shuffle_data(file_list, label_list)
     
 def list_generator(list, batch_size):
     count = len(list)
@@ -53,8 +64,15 @@ def import_image_list(file_list):
 def trans_sign_to_label(sign_list):
     label_list = np.zeros([len(sign_list), NUM_CLASSES])
     for (i, sign) in enumerate(sign_list):
-        label_list[i][sign] = 1
+        label_list[i][int(sign)] = 1
 
+    return np.asarray(label_list)
+
+def make_SVM_label_list(sign_list):
+    label_list = []
+    for (i, sign) in enumerate(sign_list):
+        label_list.append(int(sign))
+    
     return np.asarray(label_list)
 
 
@@ -75,7 +93,7 @@ def makeDocument(path):
                 if filename.endswith(".jpg"):
                     files.append(filename)
                     file_num += 1
-            divider = file_num*2/20
+            divider = file_num*2/3
             trains = files[:divider]
             tests = files[divider:]
             for filename in trains:
@@ -145,6 +163,8 @@ with g.as_default():
 
     saver = tf.train.Saver()
     sess = tf.Session()
+    clf = svm.SVC()
+    
 
     if sys.argv[1]=="conv":
         cross_entropy = -tf.reduce_sum(y_ * tf.log(y_conv))
@@ -157,9 +177,8 @@ with g.as_default():
         train_file_list, train_sign_list = get_file_info(FLAGS.train)
 
         for step in range(50):
-            batch = 0
             train_acc = 0
-            loop_count = len(train_file_list) /FLAGS.batch_size
+            loop_count = len(train_file_list) /FLAGS.batch_size + 1
             file_gen = list_generator(train_file_list, FLAGS.batch_size)
             sign_gen = list_generator(train_sign_list, FLAGS.batch_size)
             image_list = np.zeros([1, IMAGE_PIXELS])
@@ -167,7 +186,6 @@ with g.as_default():
             for i in range(loop_count):
                 file_list   = file_gen.next()
                 sign_list   = sign_gen.next()
-            
                 image_list  = import_image_list(file_list)
                 label_list  = trans_sign_to_label(sign_list)
                 train_step.run({x: image_list, y_: label_list, keep_prob: 0.5}, sess)
@@ -184,11 +202,33 @@ with g.as_default():
     elif sys.argv[1]=="transfer":
         saver.restore(sess, FLAGS.saverPath)
         print("Model restored.")
-
+    
         train_file_list, train_sign_list = get_file_info(FLAGS.train)
+        loop_count = len(train_file_list) /FLAGS.batch_size + 1
+        file_gen = list_generator(train_file_list, FLAGS.batch_size)
+        sign_gen = list_generator(train_sign_list, FLAGS.batch_size)
+        image_list = np.zeros([1, IMAGE_PIXELS])
+        label_list = np.zeros([1, NUM_CLASSES])
+        for i in range(loop_count):
+            file_list   = file_gen.next()
+            sign_list   = sign_gen.next()
+            image_list  = import_image_list(file_list)
+            label_list  = make_SVM_label_list(sign_list)
+            #print image_list
+            print("Starting y_conv.....")
+            features = sess.run(h_fc1, {x: image_list})
+            feature_list = []
+            for j in range(len(image_list)):
+                feature_list.append(features[j])
+                print feature_list[j]
+            print("get feature!!")
+            print len(feature_list)
+            print len(label_list)
+            print label_list
+            clf.fit(feature_list, label_list)
         print("I have to add transfer code...")
     else:
-        print("Wrong command! let me know 'conv' or 'transfer' ")
+        print("Wrong command! Let me send 'conv' or 'transfer' ")
 
 
 

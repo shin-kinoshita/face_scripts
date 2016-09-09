@@ -10,10 +10,10 @@ from random import shuffle
 from sklearn import svm
 
 FLAGS = tf.app.flags.FLAGS
-tf.app.flags.DEFINE_string('first_class', '', """Absolute path to the first category images locations""")
-tf.app.flags.DEFINE_string('second_class', '', """Absolute path to the second category images locations""")
-tf.app.flags.DEFINE_string('graph_file', '', """Absolute path the graph degenition protobuf file""")
-tf.app.flags.DEFINE_string('layer_name', 'pool_3:0', """Name of the layer to extract features from""")
+tf.app.flags.DEFINE_string('first_class', 'data/gauravh', """Absolute path to the first category images locations""")
+tf.app.flags.DEFINE_string('second_class', 'data/milind', """Absolute path to the second category images locations""")
+tf.app.flags.DEFINE_string('graph_file', 'tmp/face-export/face-graph.pb', """Absolute path the graph degenition protobuf file""")
+tf.app.flags.DEFINE_string('layer_name', 'pool3:0', """Name of the layer to extract features from""")
 
 def create_graph(graph_file):
   # Creates graph from saved graph_def.pb.
@@ -23,12 +23,15 @@ def create_graph(graph_file):
     _ = tf.import_graph_def(graph_def, name='')
 
 def extract_features(image, tensor_name):
+
   image_data = gfile.FastGFile(image, 'rb').read()
   print "Extracting features for", image
   with tf.Session() as sess:
     softmax_tensor = sess.graph.get_tensor_by_name(tensor_name)
+    
     features = sess.run(softmax_tensor,
                            {'DecodeJpeg/contents:0': image_data})
+    print start
     features = np.squeeze(features)
     return features
 
@@ -43,6 +46,7 @@ def shuffle_data(features, labels):
   return new_features, new_labels
 
 def get_jpeg_dataset(A_DIR, B_DIR, tensor_name):
+  
   CLASS_A_FEATURES = [extract_features(f, tensor_name) 
                       for f in glob.glob(A_DIR + "/*.jpg")]
   CLASS_B_FEATURES = [extract_features(f, tensor_name)
@@ -65,7 +69,7 @@ def main(_):
 
   clf = svm.SVC()
   clf.fit(x_train, y_train)
-
+ 
   y_pred = clf.predict(x_test)
   print "Accuracy: %.3f" % accuracy_score(y_test, y_pred)  
 

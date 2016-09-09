@@ -211,7 +211,7 @@ with g_2.as_default():
     W_fc1_2 = tf.constant(_W_fc1, name="constant_W_fc1")
     b_fc1_2 = tf.constant(_b_fc1, name="constant_b_fc1")
     h_pool2_flat_2 = tf.reshape(h_pool3_2, [-1, IMAGE_SIZE * IMAGE_SIZE * 128 / 64])
-    h_fc1_2 = tf.nn.relu(tf.matmul(h_pool2_flat_2, W_fc1_2) + b_fc1_2)
+    h_fc1_2 = tf.nn.relu(tf.matmul(h_pool2_flat_2, W_fc1_2) + b_fc1_2,name="pool3")
 
     W_fc2_2 = tf.constant(_W_fc2, name="constant_W_fc2")
     b_fc2_2 = tf.constant(_b_fc2, name="constant_b_fc2")

@@ -13,15 +13,57 @@ IMAGE_SIZE = 56
 IMAGE_PIXELS = IMAGE_SIZE*IMAGE_SIZE*3
 flags = tf.app.flags
 FLAGS = flags.FLAGS
-flags.DEFINE_string('train', './data/train.txt', 'File name of train data')
-flags.DEFINE_string('test', './data/test.txt', 'File name of train data')
+
+flags.DEFINE_string('saverPath', './tmp/face_model.ckpt', 'File name of .ckpt data')
 flags.DEFINE_integer('batch_size', 100, 'Batch size'
                      'Must divide evenly into the dataset sizes.')
-flags.DEFINE_string('saverPath', './tmp/face_model.ckpt', 'File name of .ckpt data')
 
-export_dir = './tmp/face-export'
-data_dir = './data'
+flags.DEFINE_string('export_dir', './tmp/face-export', 'directory of export')
+flags.DEFINE_string('conv_data_dir', './data_conv', '')
+flags.DEFINE_string('transfer_data_dir', './data_transfer', '')
+flags.DEFINE_string('portrsit_data_dir', './data_portrait', '')
+flags.DEFINE_string('tmp_dir', './tmp', '')
+flags.DEFINE_string('trainText', './tmp/train.txt', '')
+flags.DEFINE_string('testText', './tmp/test.txt', '')
 
+
+
+def makeDocument(path):
+    f_train = open(FLAGS.tmp_dir + '/train.txt', 'w')
+    f_test = open(FLAGS.tmp_dir + '/test.txt', 'w')
+    directoryList = os.listdir(path)
+    i = 0
+    for directory in directoryList:
+        d = path + "/" + directory
+        file_num = 0
+        if os.path.isdir(d):
+            files = []
+            trains = []
+            tests = []
+            divider = 0
+            for filename in os.listdir(d):
+                if filename.endswith(".jpg"):
+                    files.append(filename)
+                    file_num += 1
+            if sys.argv[1] == "conv":
+                divider = file_num*2/3
+            elif sys.argv[1] == "transfer":
+                divider = file_num*2/3
+
+            else:
+                print("Wrong command! Let me send 'conv' or 'transfer' ")
+        
+            
+            trains = files[:divider]
+            tests = files[divider:]
+            for filename in trains:
+                f_train.write(d + "/" + filename + " " + str(i)+"\r\n")
+            for filename in tests:
+                f_test.write(d + "/" + filename + " " + str(i)+"\r\n")
+            i += 1
+    f_train.close()
+    f_test.close()
+    return i
 
 def shuffle_data(features, labels):
     new_features, new_labels = [], []
@@ -75,38 +117,8 @@ def make_SVM_label_list(sign_list):
     
     return np.asarray(label_list)
 
-
-def makeDocument(path):
-    f_train = open(path+'/train.txt', 'w')
-    f_test = open(path+'/test.txt', 'w')
-    directoryList = os.listdir(path)
-    i = 0
-    for directory in directoryList:
-        d = path + "/" + directory
-        file_num = 0
-        if os.path.isdir(d):
-            files = []
-            trains = []
-            tests = []
-            divider = 0
-            for filename in os.listdir(d):
-                if filename.endswith(".jpg"):
-                    files.append(filename)
-                    file_num += 1
-            divider = file_num*2/3
-            trains = files[:divider]
-            tests = files[divider:]
-            for filename in trains:
-                f_train.write(d + "/" + filename + " " + str(i)+"\r\n")
-            for filename in tests:
-                f_test.write(d + "/" + filename + " " + str(i)+"\r\n")
-            i += 1
-    f_train.close()
-    f_test.close()
-    return i
-
-if os.path.exists(export_dir):
-    shutil.rmtree(export_dir)
+if os.path.exists(FLAGS.export_dir):
+    shutil.rmtree(FLAGS.export_dir)
 
 def weight_variable(shape, Name):
     initial = tf.truncated_normal(shape, stddev=0.1, name=Name)
@@ -122,8 +134,17 @@ def conv2d(x, W):
 def max_pool_2x2(x):
     return tf.nn.max_pool(x, ksize=[1, 2, 2, 1],
                           strides=[1, 2, 2, 1], padding='SAME')
+
+
 #import data
-NUM_CLASSES = makeDocument(data_dir)
+NUM_CLASSES = 0
+if sys.argv[1] == "conv":
+    NUM_CLASSES = makeDocument(FLAGS.conv_data_dir)
+elif sys.argv[1] == "transfer":
+    NUM_CLASSES = makeDocument(FLAGS.transfer_data_dir)
+else:
+    print("Wrong command! Let me send 'conv' or 'transfer' ")
+    sys.exit(0)
 print "number of classes : " + str(NUM_CLASSES)
 
 g = tf.Graph()
@@ -161,6 +182,15 @@ with g.as_default():
     y_conv = tf.nn.softmax(tf.matmul(h_fc1_drop, W_fc2) + b_fc2)
 
 
+
+    train_file_list, train_sign_list = get_file_info(FLAGS.trainText)
+    print len(train_file_list)
+    print len(train_sign_list)
+    test_file_list, test_sign_list = get_file_info(FLAGS.testText)
+    print len(test_file_list)
+    print len(test_sign_list)
+    
+
     saver = tf.train.Saver()
     sess = tf.Session()
     clf = svm.SVC()
@@ -174,24 +204,37 @@ with g.as_default():
 
         sess.run(tf.initialize_all_variables())
 
-        train_file_list, train_sign_list = get_file_info(FLAGS.train)
 
         for step in range(50):
             train_acc = 0
             loop_count = len(train_file_list) /FLAGS.batch_size + 1
-            file_gen = list_generator(train_file_list, FLAGS.batch_size)
-            sign_gen = list_generator(train_sign_list, FLAGS.batch_size)
-            image_list = np.zeros([1, IMAGE_PIXELS])
-            label_list = np.zeros([1, NUM_CLASSES])
+
+            train_file_gen = list_generator(train_file_list, FLAGS.batch_size)
+            train_sign_gen = list_generator(train_sign_list, FLAGS.batch_size)
+            test_file_gen = list_generator(test_file_list, FLAGS.batch_size)
+            test_sign_gen = list_generator(test_sign_list, FLAGS.batch_size)
+        
+            train_image_list = np.zeros([1, IMAGE_PIXELS])
+            train_label_list = np.zeros([1, NUM_CLASSES])
+            test_image_list = np.zeros([1, IMAGE_PIXELS])
+            test_label_list = np.zeros([1, NUM_CLASSES])
+            
+            test_image_list  = import_image_list(test_file_list)
+            test_label_list  = trans_sign_to_label(test_sign_list)
+            image_list = import_image_list(test_file_list)
+            label_list = trans_sign_to_label(test_sign_list)
+
             for i in range(loop_count):
-                file_list   = file_gen.next()
-                sign_list   = sign_gen.next()
-                image_list  = import_image_list(file_list)
-                label_list  = trans_sign_to_label(sign_list)
-                train_step.run({x: image_list, y_: label_list, keep_prob: 0.5}, sess)
-                train_acc += accuracy.eval({x: image_list, y_: label_list, keep_prob: 1.0}, sess)
-            print "step {0}, training accuracy {1}".format(step, train_acc / loop_count)
-        test_file_list, test_sign_list = get_file_info(FLAGS.test)
+                train_file_list = train_file_gen.next()
+                train_sign_list = train_sign_gen.next()
+                
+                train_image_list  = import_image_list(train_file_list)
+                train_label_list  = trans_sign_to_label(train_sign_list)
+                
+                train_step.run({x: train_image_list, y_: train_label_list, keep_prob: 0.5}, sess)
+                train_acc += accuracy.eval({x: test_image_list, y_: test_label_list, keep_prob: 1.0}, sess)
+            print ("step {0}, training accuracy {1}".format(step, train_acc / loop_count))
+        #CNN accuracyCheck
         image_list = import_image_list(test_file_list)
         label_list = trans_sign_to_label(test_sign_list)
         test_acc = accuracy.eval({x: image_list, y_: label_list, keep_prob: 1.0}, sess)
@@ -203,7 +246,6 @@ with g.as_default():
         saver.restore(sess, FLAGS.saverPath)
         print("Model restored.")
     
-        train_file_list, train_sign_list = get_file_info(FLAGS.train)
         loop_count = len(train_file_list) /FLAGS.batch_size + 1
         file_gen = list_generator(train_file_list, FLAGS.batch_size)
         sign_gen = list_generator(train_sign_list, FLAGS.batch_size)
@@ -287,14 +329,14 @@ with g_2.as_default():
     sess_2.run(init_2)
 
     graph_def = g_2.as_graph_def()
-    tf.train.write_graph(graph_def, export_dir, 'face-graph.pb', as_text=False)
+    tf.train.write_graph(graph_def, FLAGS.export_dir, 'face-graph.pb', as_text=False)
 
     # Test trained model
     y__2 = tf.placeholder("float", [None, NUM_CLASSES])
     correct_prediction_2 = tf.equal(tf.argmax(y_conv_2, 1), tf.argmax(y__2, 1))
     accuracy_2 = tf.reduce_mean(tf.cast(correct_prediction_2, "float"))
 
-    test_file_list, test_sign_list = get_file_info(FLAGS.test)
+    test_file_list, test_sign_list = get_file_info(FLAGS.testText)
     image_list = import_image_list(test_file_list)
     label_list = trans_sign_to_label(test_sign_list)
     print "check accuracy %g" % accuracy_2.eval(

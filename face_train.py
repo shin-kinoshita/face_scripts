@@ -8,6 +8,7 @@ import sys
 from PIL import Image
 from sklearn import svm
 from random import shuffle
+from sklearn.metrics import accuracy_score
 
 IMAGE_SIZE = 56
 IMAGE_PIXELS = IMAGE_SIZE*IMAGE_SIZE*3
@@ -120,12 +121,18 @@ def make_SVM_label_list(sign_list):
 if os.path.exists(FLAGS.export_dir):
     shutil.rmtree(FLAGS.export_dir)
 
-def weight_variable(shape, Name):
-    initial = tf.truncated_normal(shape, stddev=0.1, name=Name)
+def weight_variable(shape, Name=None):
+    if Name == None:
+        initial = tf.truncated_normal(shape, stddev=0.1)
+    else:
+        initial = tf.truncated_normal(shape, stddev=0.1, name=Name)
     return tf.Variable(initial)
 
-def bias_variable(shape, Name):
-    initial = tf.constant(0.1, shape=shape,name=Name)
+def bias_variable(shape, Name=None):
+    if Name == None:
+        initial = tf.constant(0.1, shape=shape)
+    else:
+        initial = tf.constant(0.1, shape=shape,name=Name)
     return tf.Variable(initial)
 
 def conv2d(x, W):
@@ -176,11 +183,6 @@ with g.as_default():
     keep_prob = tf.placeholder("float")
     h_fc1_drop = tf.nn.dropout(h_fc1, keep_prob)
 
-    W_fc2 = weight_variable([1024, NUM_CLASSES],"fc2")
-    b_fc2 = bias_variable([NUM_CLASSES],"b_fc2")
-
-    y_conv = tf.nn.softmax(tf.matmul(h_fc1_drop, W_fc2) + b_fc2)
-
 
 
     train_file_list, train_sign_list = get_file_info(FLAGS.trainText)
@@ -197,6 +199,9 @@ with g.as_default():
     
 
     if sys.argv[1]=="conv":
+        W_fc2 = weight_variable([1024, NUM_CLASSES])
+        b_fc2 = bias_variable([NUM_CLASSES])
+        y_conv = tf.nn.softmax(tf.matmul(h_fc1_drop, W_fc2) + b_fc2)
         cross_entropy = -tf.reduce_sum(y_ * tf.log(y_conv))
         train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy)
         correct_prediction = tf.equal(tf.argmax(y_conv, 1), tf.argmax(y_, 1))
@@ -245,30 +250,40 @@ with g.as_default():
     elif sys.argv[1]=="transfer":
         saver.restore(sess, FLAGS.saverPath)
         print("Model restored.")
-    
+
+        #make test-data
+        print("Making test-data...")
+        test_image_list = np.zeros([1, IMAGE_PIXELS])
+        test_label_list = np.zeros([1, NUM_CLASSES])
+        test_image_list  = import_image_list(test_file_list)
+        test_label_list  = make_SVM_label_list(test_sign_list)
+        features = sess.run(h_fc1, {x: test_image_list})
+        test_feature_list = []
+        for j in range(len(test_image_list)):
+            test_feature_list.append(features[j])
+        print("Got test-data!!")
+
+        #SVM
+        print("Prepareing SVM Learning...")
         loop_count = len(train_file_list) /FLAGS.batch_size + 1
-        file_gen = list_generator(train_file_list, FLAGS.batch_size)
-        sign_gen = list_generator(train_sign_list, FLAGS.batch_size)
-        image_list = np.zeros([1, IMAGE_PIXELS])
-        label_list = np.zeros([1, NUM_CLASSES])
+        train_file_gen = list_generator(train_file_list, FLAGS.batch_size)
+        train_sign_gen = list_generator(train_sign_list, FLAGS.batch_size)
+        train_image_list = np.zeros([1, IMAGE_PIXELS])
+        train_label_list = np.zeros([1, NUM_CLASSES])
         for i in range(loop_count):
-            file_list   = file_gen.next()
-            sign_list   = sign_gen.next()
-            image_list  = import_image_list(file_list)
-            label_list  = make_SVM_label_list(sign_list)
-            #print image_list
-            print("Starting y_conv.....")
-            features = sess.run(h_fc1, {x: image_list})
-            feature_list = []
-            for j in range(len(image_list)):
-                feature_list.append(features[j])
-                print feature_list[j]
-            print("get feature!!")
-            print len(feature_list)
-            print len(label_list)
-            print label_list
-            clf.fit(feature_list, label_list)
-        print("I have to add transfer code...")
+            train_file_list   = train_file_gen.next()
+            train_sign_list   = train_sign_gen.next()
+            train_image_list  = import_image_list(train_file_list)
+            train_label_list  = make_SVM_label_list(train_sign_list)
+            features = sess.run(h_fc1, {x: train_image_list})
+            train_feature_list = []
+            for j in range(len(train_image_list)):
+                train_feature_list.append(features[j])
+        clf.fit(train_feature_list, train_label_list)
+
+        print("SVM Learning")
+        y_pred = clf.predict(test_feature_list)
+        print "Accuracy: %.3f" % accuracy_score(test_label_list, y_pred)
     else:
         print("Wrong command! Let me send 'conv' or 'transfer' ")
 

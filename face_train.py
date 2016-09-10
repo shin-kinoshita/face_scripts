@@ -22,14 +22,14 @@ flags.DEFINE_integer('batch_size', 100, 'Batch size'
 flags.DEFINE_string('export_dir', './tmp/face-export', 'directory of export')
 flags.DEFINE_string('conv_data_dir', './data_conv', '')
 flags.DEFINE_string('transfer_data_dir', './data_transfer', '')
-flags.DEFINE_string('portrsit_data_dir', './data_portrait', '')
+flags.DEFINE_string('portrait_data_dir', './data_portrait', '')
 flags.DEFINE_string('tmp_dir', './tmp', '')
 flags.DEFINE_string('trainText', './tmp/train.txt', '')
 flags.DEFINE_string('testText', './tmp/test.txt', '')
 
 
 
-def makeDocument(path):
+def makeDocument(path,path2=None):
     f_train = open(FLAGS.tmp_dir + '/train.txt', 'w')
     f_test = open(FLAGS.tmp_dir + '/test.txt', 'w')
     directoryList = os.listdir(path)
@@ -37,31 +37,47 @@ def makeDocument(path):
     for directory in directoryList:
         d = path + "/" + directory
         file_num = 0
+        i += 1
         if os.path.isdir(d):
             files = []
-            trains = []
-            tests = []
-            divider = 0
             for filename in os.listdir(d):
                 if filename.endswith(".jpg"):
                     files.append(filename)
                     file_num += 1
             if sys.argv[1] == "conv":
+                trains = []
+                tests = []
                 divider = file_num*2/3
+                trains = files[:divider]
+                tests = files[divider:]
+                for filename in trains:
+                    f_train.write(d + "/" + filename + " " + str(i)+"\r\n")
+                for filename in tests:
+                    f_test.write(d + "/" + filename + " " + str(i)+"\r\n")
             elif sys.argv[1] == "transfer":
-                divider = file_num*2/3
-
+                for filename in files:
+                    f_train.write(d + "/" + filename + " " + str(i)+"\r\n")
             else:
-                print("Wrong command! Let me send 'conv' or 'transfer' ")
-        
-            
-            trains = files[:divider]
-            tests = files[divider:]
-            for filename in trains:
-                f_train.write(d + "/" + filename + " " + str(i)+"\r\n")
-            for filename in tests:
-                f_test.write(d + "/" + filename + " " + str(i)+"\r\n")
+                sys.exit(1)
+
+    if path2 != None:
+        directoryList = os.listdir(path2)
+        i = 0
+        for directory in directoryList:
+            d = path2 + "/" + directory
+            file_num = 0
             i += 1
+            if os.path.isdir(d):
+                files = []
+                tests = []
+                for filename in os.listdir(d):
+                    if filename.endswith(".jpg"):
+                        files.append(filename)
+                        file_num += 1
+                for filename in files:
+                    f_test.write(d + "/" + filename + " " + str(i)+"\r\n")
+    else:
+        pass
     f_train.close()
     f_test.close()
     return i
@@ -148,7 +164,7 @@ NUM_CLASSES = 0
 if sys.argv[1] == "conv":
     NUM_CLASSES = makeDocument(FLAGS.conv_data_dir)
 elif sys.argv[1] == "transfer":
-    NUM_CLASSES = makeDocument(FLAGS.transfer_data_dir)
+    NUM_CLASSES = makeDocument(FLAGS.transfer_data_dir,FLAGS.portrait_data_dir)
 else:
     print("Wrong command! Let me send 'conv' or 'transfer' ")
     sys.exit(0)
@@ -261,7 +277,10 @@ with g.as_default():
         test_feature_list = []
         for j in range(len(test_image_list)):
             test_feature_list.append(features[j])
+        print len(test_feature_list)
+        print len(test_label_list)
         print("Got test-data!!")
+
 
         #SVM
         print("Prepareing SVM Learning...")
@@ -270,6 +289,7 @@ with g.as_default():
         train_sign_gen = list_generator(train_sign_list, FLAGS.batch_size)
         train_image_list = np.zeros([1, IMAGE_PIXELS])
         train_label_list = np.zeros([1, NUM_CLASSES])
+        print loop_count
         for i in range(loop_count):
             train_file_list   = train_file_gen.next()
             train_sign_list   = train_sign_gen.next()
@@ -279,7 +299,10 @@ with g.as_default():
             train_feature_list = []
             for j in range(len(train_image_list)):
                 train_feature_list.append(features[j])
-        clf.fit(train_feature_list, train_label_list)
+            print("SVM Learning")
+            clf.fit(train_feature_list, train_label_list)
+            y_pred = clf.predict(test_feature_list)
+            print "Accuracy: %.3f" % accuracy_score(test_label_list, y_pred)
 
         print("SVM Learning")
         y_pred = clf.predict(test_feature_list)

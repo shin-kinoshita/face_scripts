@@ -29,57 +29,46 @@ flags.DEFINE_string('testText', './tmp/test.txt', '')
 
 
 
-def makeDocument(path,path2=None):
+def makeDocument(path,path2):
     f_train = open(FLAGS.tmp_dir + '/train.txt', 'w')
-    f_test = open(FLAGS.tmp_dir + '/test.txt', 'w')
     directoryList = os.listdir(path)
     i = 0
     for directory in directoryList:
         d = path + "/" + directory
         file_num = 0
-        i += 1
         if os.path.isdir(d):
+            i += 1
             files = []
             for filename in os.listdir(d):
                 if filename.endswith(".jpg"):
                     files.append(filename)
                     file_num += 1
-            if sys.argv[1] == "conv":
-                trains = []
-                tests = []
-                divider = file_num*2/3
-                trains = files[:divider]
-                tests = files[divider:]
-                for filename in trains:
-                    f_train.write(d + "/" + filename + " " + str(i)+"\r\n")
-                for filename in tests:
-                    f_test.write(d + "/" + filename + " " + str(i)+"\r\n")
-            elif sys.argv[1] == "transfer":
-                for filename in files:
-                    f_train.write(d + "/" + filename + " " + str(i)+"\r\n")
-            else:
-                sys.exit(1)
-
-    if path2 != None:
-        directoryList = os.listdir(path2)
-        i = 0
-        for directory in directoryList:
-            d = path2 + "/" + directory
-            file_num = 0
-            i += 1
-            if os.path.isdir(d):
-                files = []
-                tests = []
-                for filename in os.listdir(d):
-                    if filename.endswith(".jpg"):
-                        files.append(filename)
-                        file_num += 1
-                for filename in files:
-                    f_test.write(d + "/" + filename + " " + str(i)+"\r\n")
-    else:
-        pass
+            for filename in files:
+                f_train.write(d + "/" + filename + " " + str(i)+"\r\n")
     f_train.close()
+
+    f_test = open(FLAGS.tmp_dir + '/test.txt', 'w')
+    directoryList = os.listdir(path2)
+    j = 0
+    for directory in directoryList:
+        d = path2 + "/" + directory
+        file_num = 0
+        if os.path.isdir(d):
+            j += 1
+            files = []
+            tests = []
+            for filename in os.listdir(d):
+                if filename.endswith(".jpg"):
+                    files.append(filename)
+                    file_num += 1
+            for filename in files:
+                f_test.write(d + "/" + filename + " " + str(j)+"\r\n")
     f_test.close()
+    if i != j:
+        print("Class params is different in training/test")
+        print i
+        print j
+        exit(1)
     return i
 
 def shuffle_data(features, labels):
@@ -123,7 +112,7 @@ def import_image_list(file_list):
 def trans_sign_to_label(sign_list):
     label_list = np.zeros([len(sign_list), NUM_CLASSES])
     for (i, sign) in enumerate(sign_list):
-        label_list[i][int(sign)] = 1
+        label_list[i][int(sign)-1] = 1
 
     return np.asarray(label_list)
 
@@ -137,18 +126,12 @@ def make_SVM_label_list(sign_list):
 if os.path.exists(FLAGS.export_dir):
     shutil.rmtree(FLAGS.export_dir)
 
-def weight_variable(shape, Name=None):
-    if Name == None:
-        initial = tf.truncated_normal(shape, stddev=0.1)
-    else:
-        initial = tf.truncated_normal(shape, stddev=0.1, name=Name)
+def weight_variable(shape, Name):
+    initial = tf.truncated_normal(shape, stddev=0.1)
     return tf.Variable(initial)
 
-def bias_variable(shape, Name=None):
-    if Name == None:
-        initial = tf.constant(0.1, shape=shape)
-    else:
-        initial = tf.constant(0.1, shape=shape,name=Name)
+def bias_variable(shape, Name):
+    initial = tf.constant(0.1, shape=shape,name=Name)
     return tf.Variable(initial)
 
 def conv2d(x, W):
@@ -162,7 +145,7 @@ def max_pool_2x2(x):
 #import data
 NUM_CLASSES = 0
 if sys.argv[1] == "conv":
-    NUM_CLASSES = makeDocument(FLAGS.conv_data_dir)
+    NUM_CLASSES = makeDocument(FLAGS.conv_data_dir,FLAGS.portrait_data_dir)
 elif sys.argv[1] == "transfer":
     NUM_CLASSES = makeDocument(FLAGS.transfer_data_dir,FLAGS.portrait_data_dir)
 else:
@@ -207,6 +190,7 @@ with g.as_default():
     test_file_list, test_sign_list = get_file_info(FLAGS.testText)
     print len(test_file_list)
     print len(test_sign_list)
+    print test_sign_list
     
 
     saver = tf.train.Saver()
@@ -215,8 +199,8 @@ with g.as_default():
     
 
     if sys.argv[1]=="conv":
-        W_fc2 = weight_variable([1024, NUM_CLASSES])
-        b_fc2 = bias_variable([NUM_CLASSES])
+        W_fc2 = weight_variable([1024, NUM_CLASSES], "W_fc2")
+        b_fc2 = bias_variable([NUM_CLASSES], "b_fc2")
         y_conv = tf.nn.softmax(tf.matmul(h_fc1_drop, W_fc2) + b_fc2)
         cross_entropy = -tf.reduce_sum(y_ * tf.log(y_conv))
         train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy)
@@ -225,26 +209,26 @@ with g.as_default():
 
         sess.run(tf.initialize_all_variables())
 
+        print("Making test-data....")
+        test_image_list = np.zeros([1, IMAGE_PIXELS])
+        test_label_list = np.zeros([1, NUM_CLASSES])
 
+        test_image_list  = import_image_list(test_file_list)
+        test_label_list  = trans_sign_to_label(test_sign_list)
+        print("Got test-data!!")
+
+
+        print("Starting CNN Learning...")
         for step in range(50):
             train_acc = 0
             loop_count = len(train_file_list) /FLAGS.batch_size + 1
 
             train_file_gen = list_generator(train_file_list, FLAGS.batch_size)
             train_sign_gen = list_generator(train_sign_list, FLAGS.batch_size)
-            test_file_gen = list_generator(test_file_list, FLAGS.batch_size)
-            test_sign_gen = list_generator(test_sign_list, FLAGS.batch_size)
-        
+           
             train_image_list = np.zeros([1, IMAGE_PIXELS])
             train_label_list = np.zeros([1, NUM_CLASSES])
-            test_image_list = np.zeros([1, IMAGE_PIXELS])
-            test_label_list = np.zeros([1, NUM_CLASSES])
             
-            test_image_list  = import_image_list(test_file_list)
-            test_label_list  = trans_sign_to_label(test_sign_list)
-            image_list = import_image_list(test_file_list)
-            label_list = trans_sign_to_label(test_sign_list)
-
             for i in range(loop_count):
                 train_file_list = train_file_gen.next()
                 train_sign_list = train_sign_gen.next()

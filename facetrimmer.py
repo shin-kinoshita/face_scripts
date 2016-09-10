@@ -1,5 +1,6 @@
 #!/usr/bin/python
 import sys
+import os 
 sys.path.append('/usr/local/lib/python2.7/site-packages')
 import cv2
 import faceDetector
@@ -12,8 +13,7 @@ import glob
 ramp_frames = 1
 # Now we can initialize the camera capture object with the cv2.VideoCapture class.
 # All it needs is the index to a camera port.
-savePath = "./test_data/" + sys.argv[2]
-filename = sys.argv[2]
+savePath = "./data_facetrimmer/output"
 
 # Captures a single image from the camera and returns it in PIL format
 #def get_image():
@@ -23,30 +23,26 @@ filename = sys.argv[2]
 # Ramp the camera - these frames will be discarded and are only used to allow v4l2
 # to adjust light levels, if necessary
 #camera = cv2.VideoCapture(camera_port)
-tmp = glob.glob(sys.argv[1]+'/*.*')
+tmp = glob.glob('./data_facetrimmer/input/*.JPG')
 n = 0
-u = 0
-while(n < 500):
-    camera_capture = cv2.imread(tmp[u],1)
-    f = filename + str(n) + ".jpg"
+for index in tmp:
+    #print index
+    n+=1
+    camera_capture = cv2.imread(index,1)
+    f = os.path.basename(index)
     #for i in xrange(ramp_frames):
     # cap = get_image()
     
     # cap = cv2.imread(tmp[ramp_frames],1)
-    print("Taking image...")
+    #print("Taking image...")
     
     # Take the actual image we want to keep
     
     # print camera_capture
     
     flag = faceDetector.faceDetector(camera_capture, savePath, f)
-    
-    u+=1
-    print flag
-    if flag == 1:
-        print "print" + str(n)
-        n += 1
-del(camera)
+print n
+
 # A nice feature of the imwrite method is that it will automatically choose the
 # correct format based on the file extension you provide. Convenient!
 # You'll want to release the camera, otherwise you won't be able to create a new

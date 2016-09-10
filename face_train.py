@@ -283,28 +283,21 @@ with g.as_default():
 
 
         #SVM
-        print("Prepareing SVM Learning...")
-        loop_count = len(train_file_list) /FLAGS.batch_size + 1
-        train_file_gen = list_generator(train_file_list, FLAGS.batch_size)
-        train_sign_gen = list_generator(train_sign_list, FLAGS.batch_size)
+        print("Making training-data")
         train_image_list = np.zeros([1, IMAGE_PIXELS])
         train_label_list = np.zeros([1, NUM_CLASSES])
-        print loop_count
-        for i in range(loop_count):
-            train_file_list   = train_file_gen.next()
-            train_sign_list   = train_sign_gen.next()
-            train_image_list  = import_image_list(train_file_list)
-            train_label_list  = make_SVM_label_list(train_sign_list)
-            features = sess.run(h_fc1, {x: train_image_list})
-            train_feature_list = []
-            for j in range(len(train_image_list)):
-                train_feature_list.append(features[j])
-            print("SVM Learning")
-            clf.fit(train_feature_list, train_label_list)
-            y_pred = clf.predict(test_feature_list)
-            print "Accuracy: %.3f" % accuracy_score(test_label_list, y_pred)
-
+        train_image_list  = import_image_list(train_file_list)
+        train_label_list  = make_SVM_label_list(train_sign_list)
+        features = sess.run(h_fc1, {x: train_image_list})
+        train_feature_list = []
+        for j in range(len(train_image_list)):
+            train_feature_list.append(features[j])
+        print len(train_feature_list)
+        print len(train_label_list)
+        
         print("SVM Learning")
+        clf.fit(train_feature_list, train_label_list)
+
         y_pred = clf.predict(test_feature_list)
         print "Accuracy: %.3f" % accuracy_score(test_label_list, y_pred)
     else:

@@ -64,10 +64,11 @@ def makeDocument(path,path2):
             for filename in files:
                 f_test.write(d + "/" + filename + " " + str(j)+"\r\n")
     f_test.close()
+    print "Class of training data    : " + str(i)
+    print "Class of test data        : " + str(j)
     if i != j:
         print("Class params is different in training/test")
-        print i
-        print j
+        
         exit(1)
     return i
 
@@ -127,7 +128,7 @@ if os.path.exists(FLAGS.export_dir):
     shutil.rmtree(FLAGS.export_dir)
 
 def weight_variable(shape, Name):
-    initial = tf.truncated_normal(shape, stddev=0.1)
+    initial = tf.random_normal(shape, stddev=0.1)
     return tf.Variable(initial)
 
 def bias_variable(shape, Name):
@@ -145,13 +146,12 @@ def max_pool_2x2(x):
 #import data
 NUM_CLASSES = 0
 if sys.argv[1] == "conv":
-    NUM_CLASSES = makeDocument(FLAGS.conv_data_dir,FLAGS.portrait_data_dir)
+    NUM_CLASSES = makeDocument(FLAGS.conv_data_dir,FLAGS.transfer_data_dir)
 elif sys.argv[1] == "transfer":
     NUM_CLASSES = makeDocument(FLAGS.transfer_data_dir,FLAGS.portrait_data_dir)
 else:
     print("Wrong command! Let me send 'conv' or 'transfer' ")
     sys.exit(0)
-print "number of classes : " + str(NUM_CLASSES)
 
 g = tf.Graph()
 with g.as_default():
@@ -162,16 +162,27 @@ with g.as_default():
     b_conv1 = bias_variable([32],"b_conv1")
     x_image = tf.reshape(x, [-1, IMAGE_SIZE, IMAGE_SIZE, 3])
     h_conv1 = tf.nn.relu(conv2d(x_image, W_conv1) + b_conv1)
-    h_pool1 = max_pool_2x2(h_conv1)
+    
+    W_conv1_2 = weight_variable([3, 3, 32, 32],"W_conv1_1")
+    b_conv1_2 = bias_variable([32],"b_conv1_2")
+    h_conv1_2 = tf.nn.relu(conv2d(h_conv1, W_conv1_2) + b_conv1_2)
+
+    h_pool1 = max_pool_2x2(h_conv1_2)
 
     W_conv2 = weight_variable([3, 3, 32, 64],"W_conv2")
     b_conv2 = bias_variable([64],"b_conv2")
     h_conv2 = tf.nn.relu(conv2d(h_pool1, W_conv2) + b_conv2)
-    h_pool2 = max_pool_2x2(h_conv2)
+
+    W_conv2_2 = weight_variable([3, 3, 64, 64],"W_conv2_2")
+    b_conv2_2 = bias_variable([64],"b_conv2_2")
+    h_conv2_2 = tf.nn.relu(conv2d(h_conv2, W_conv2_2) + b_conv2_2)
+
+    h_pool2 = max_pool_2x2(h_conv2_2)
 
     W_conv3 = weight_variable([3, 3, 64, 128],"W_conv3")
     b_conv3 = bias_variable([128],"b_conv3")
     h_conv3 = tf.nn.relu(conv2d(h_pool2, W_conv3) + b_conv3)
+
     h_pool3 = max_pool_2x2(h_conv3)
 
     W_fc1 = weight_variable([IMAGE_SIZE * IMAGE_SIZE * 128 / 64, 1024],"W_fc1")
@@ -185,14 +196,11 @@ with g.as_default():
 
 
     train_file_list, train_sign_list = get_file_info(FLAGS.trainText)
-    print len(train_file_list)
-    print len(train_sign_list)
     test_file_list, test_sign_list = get_file_info(FLAGS.testText)
-    print len(test_file_list)
-    print len(test_sign_list)
-    print test_sign_list
-    
 
+    print "the number of training_list is  " + str(len(train_file_list)) + " : " + str(len(train_sign_list))
+    print "the number of test_list is      " + str(len(test_file_list)) + " : " + str(len(test_sign_list))
+    
     saver = tf.train.Saver()
     sess = tf.Session()
     clf = svm.SVC()
@@ -202,7 +210,8 @@ with g.as_default():
         W_fc2 = weight_variable([1024, NUM_CLASSES], "W_fc2")
         b_fc2 = bias_variable([NUM_CLASSES], "b_fc2")
         y_conv = tf.nn.softmax(tf.matmul(h_fc1_drop, W_fc2) + b_fc2)
-        cross_entropy = -tf.reduce_sum(y_ * tf.log(y_conv))
+        cross_entropy = -tf.reduce_sum(y_*tf.log(tf.clip_by_value(y_conv,1e-10,1.0)))
+        #cross_entropy = -tf.reduce_sum(y_ * tf.log(y_conv))
         train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy)
         correct_prediction = tf.equal(tf.argmax(y_conv, 1), tf.argmax(y_, 1))
         accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
@@ -221,15 +230,20 @@ with g.as_default():
         print("Starting CNN Learning...")
         for step in range(50):
             train_acc = 0
-            loop_count = len(train_file_list) /FLAGS.batch_size + 1
 
+            train_file_list, train_sign_list = get_file_info(FLAGS.trainText)
+            loop_count = len(train_file_list) /FLAGS.batch_size + 1
+            
             train_file_gen = list_generator(train_file_list, FLAGS.batch_size)
             train_sign_gen = list_generator(train_sign_list, FLAGS.batch_size)
+            
            
             train_image_list = np.zeros([1, IMAGE_PIXELS])
             train_label_list = np.zeros([1, NUM_CLASSES])
             
             for i in range(loop_count):
+                #print "Loop Count is " + str(i)
+                
                 train_file_list = train_file_gen.next()
                 train_sign_list = train_sign_gen.next()
                 
@@ -238,7 +252,9 @@ with g.as_default():
                 
                 train_step.run({x: train_image_list, y_: train_label_list, keep_prob: 0.5}, sess)
                 train_acc += accuracy.eval({x: test_image_list, y_: test_label_list, keep_prob: 1.0}, sess)
-            print ("step {0}, training accuracy {1}".format(step, train_acc / loop_count))
+            print "step : " + str(step)
+            print ("training accuracy  : {0}".format(train_acc / loop_count))
+            print("cross entropy      : {0}".format(sess.run(cross_entropy,{x: train_image_list, y_: train_label_list, keep_prob: 1.0})))
         #CNN accuracyCheck
         image_list = import_image_list(test_file_list)
         label_list = trans_sign_to_label(test_sign_list)
